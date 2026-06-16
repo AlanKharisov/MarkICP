@@ -187,7 +187,7 @@ function CryptoList({ wallets, reload }: { wallets: CryptoWallet[]; reload: () =
   return (
     <>
       <div className="card" style={{ marginBottom: 14 }}>
-        <h3 style={{ fontSize: 14 }}>Добавить Solana-кошелёк</h3>
+        <h3 style={{ fontSize: 14 }}>Добавить ICP-кошелёк (Principal)</h3>
         <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr auto', gap: 8, marginTop: 10 }}>
           <input
             placeholder="Адрес"
@@ -216,7 +216,7 @@ function CryptoList({ wallets, reload }: { wallets: CryptoWallet[]; reload: () =
               <div className="sub" style={{ fontFamily: 'monospace', fontSize: 11, wordBreak: 'break-all' }}>{w.address}</div>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: 12 }}>
                 <span>
-                  {w.balance != null ? <strong>{w.balance.toFixed(4)} SOL</strong> : <span className="sub">—</span>}
+                  {w.balance != null ? <strong>{w.balance.toFixed(4)} ICP</strong> : <span className="sub">—</span>}
                 </span>
                 <div style={{ display: 'flex', gap: 8 }}>
                   <button className="btn" onClick={() => refresh(w.id)}><Icon.Refresh /></button>

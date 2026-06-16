@@ -16,66 +16,14 @@ import {
   type NFT,
 } from '../api';
 import { Icon } from '../icons';
-import { useUmi } from '../hooks/useUmi';
-import {
-  generateSigner,
-  percentAmount,
-  lamports,
-  publicKey as umiPublicKey,
-} from '@metaplex-foundation/umi';
-import { createNft } from '@metaplex-foundation/mpl-token-metadata';
-import { transferSol } from '@metaplex-foundation/mpl-toolbox';
-
-const PLATFORM_TREASURY = umiPublicKey('2wZ2vKzRzY7ZxkRTRgTKVBDBVTqk1NfvGbQFgDxJAr9X');
-// Temporarily disabled: keep treasury/commission code in place, but do not add
-// platform-fee transfers to mint transactions until the treasury wallet is final.
-const PLATFORM_FEE_ENABLED = false;
+import { useICP } from '../hooks/useICP';
 
 const CATEGORIES = ['Art', 'Music', 'Photography', 'Gaming', '3D', 'Collectible', 'Sports', 'Meme'];
-const CURRENCIES = ['SOL', 'UAH', 'USD', 'USDC'];
-const BLOCKCHAINS = [{ id: 'solana', name: 'Solana', icon: '◎', currency: 'SOL', fee: '~$0.01' }];
+const CURRENCIES = ['ICP', 'UAH', 'USD', 'USDC'];
+const BLOCKCHAINS = [{ id: 'icp', name: 'Internet Computer', icon: '∞', currency: 'ICP', fee: '$0' }];
 
 type Mode = 'list' | 'create' | 'batch';
 type Step = 1 | 2 | 3;
-
-async function rpcWithRetry<T>(
-  fn: () => Promise<T>,
-  label: string,
-  attempts = 5,
-): Promise<T> {
-  let lastErr: any;
-  for (let a = 0; a < attempts; a++) {
-    try {
-      return await fn();
-    } catch (e: any) {
-      lastErr = e;
-      const msg = String(e?.message ?? e ?? '');
-      const is429 = msg.includes('429') || /too many|rate.?limit/i.test(msg);
-      if (!is429 || a === attempts - 1) throw e;
-      const delay = 500 * Math.pow(2, a) + Math.random() * 300;
-      console.warn(`[NFTs] ${label}: 429, retry in ${Math.round(delay)}ms (${a + 1}/${attempts})`);
-      await new Promise(r => setTimeout(r, delay));
-    }
-  }
-  throw lastErr;
-}
-
-async function sendCommission(umi: any, commissionLamports: number): Promise<void> {
-  try {
-    const feeBlockhash = await rpcWithRetry<any>(() => umi.rpc.getLatestBlockhash(), 'commission blockhash');
-    await rpcWithRetry(
-      () => transferSol(umi, {
-        destination: PLATFORM_TREASURY,
-        amount: lamports(commissionLamports),
-      })
-        .setBlockhash(feeBlockhash)
-        .sendAndConfirm(umi, { confirm: { strategy: { type: 'blockhash', ...feeBlockhash } } }),
-      'commission send',
-    );
-  } catch (feeErr: any) {
-    console.warn('[NFTs] commission transfer skipped:', feeErr?.message);
-  }
-}
 
 function compressImage(file: File, maxPx = 1080, quality = 0.8): Promise<File> {
   return new Promise(resolve => {
@@ -283,7 +231,7 @@ function NftCard({ nft, onEdit, onDelete, onShowQr }: {
       <div style={{ display: 'flex', gap: 8, marginTop: 10, flexWrap: 'wrap' }}>
         {nft.forSale && <span className="badge badge-success">on sale · {nft.price} {nft.currency}</span>}
         {nft.nfcUid && <span className="badge badge-info">NFC</span>}
-        {nft.mintAddress && <span className="badge badge-muted">on-chain</span>}
+        {nft.tokenId && <span className="badge badge-muted">on-chain</span>}
         {nft.category && <span className="badge badge-muted">{nft.category}</span>}
       </div>
       <div style={{ display: 'flex', gap: 8, marginTop: 12, flexWrap: 'wrap' }}>
@@ -302,7 +250,7 @@ function NftCard({ nft, onEdit, onDelete, onShowQr }: {
 // ────────────────────────────────────────────────────────────────────────────
 
 function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
-  const { umi, isReady: walletReady, connect: connectPhantom, publicKey } = useUmi();
+  const { isReady: walletReady, connect: connectPlug, principal } = useICP();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const collectionInputRef = useRef<HTMLInputElement>(null);
 
@@ -322,8 +270,8 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
   const [category, setCategory] = useState('Art');
   const [forSale, setForSale] = useState(false);
   const [price, setPrice] = useState('');
-  const [currency, setCurrency] = useState('SOL');
-  const [blockchain, setBlockchain] = useState('solana');
+  const [currency, setCurrency] = useState('ICP');
+  const [blockchain, setBlockchain] = useState('icp');
   const [royalty, setRoyalty] = useState('10');
   const [editionCount, setEditionCount] = useState('1');
 
@@ -388,11 +336,11 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
 
   const handleSubmit = async () => {
     if (!walletReady) {
-      alert('Подключи Phantom-кошелёк, чтобы выпустить NFT в чейне.');
+      alert('Подключи Plug Wallet, чтобы привязать Principal к выпуску NFT.');
       return;
     }
-    if (!umi?.identity?.publicKey) {
-      alert('Signer не готов — переподключи Phantom.');
+    if (!principal) {
+      alert('Principal не получен — переподключи Plug.');
       return;
     }
     if (isCollection && collectionFiles.length === 0) {
@@ -409,9 +357,22 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
     setUploadProgress('');
 
     try {
+      const baseMetadata: any = {
+        title: title.trim(),
+        description: description.trim(),
+        tags,
+        category,
+        blockchain,
+        royalty: parseFloat(royalty),
+        forSale,
+        currency,
+        creatorPrincipal: principal,
+      };
+      if (forSale && price) baseMetadata.price = parseFloat(price);
+
       if (isCollection) {
         const totalItems = collectionFiles.length;
-        setUploadProgress(`Шаг 1/${totalItems + 3} — Сжатие ${totalItems} файлов…`);
+        setUploadProgress(`Шаг 1/3 — Сжатие ${totalItems} файлов…`);
         const items = collectionFiles.map((f, i) => ({
           title: f.name.replace(/\.[^.]+$/, '') || `${collectionName.trim() || 'Collection'} #${i + 1}`,
           description: description.trim(),
@@ -422,59 +383,20 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
         const form = new FormData();
         compressedFiles.forEach(f => form.append('images[]', f));
         form.append('metadata', JSON.stringify({
+          ...baseMetadata,
           batchName: collectionName.trim() || title.trim() || 'Collection',
-          blockchain,
-          currency,
-          royalty: parseFloat(royalty),
-          forSale,
-          tags,
           items,
         }));
 
-        setUploadProgress(`Шаг 1/${totalItems + 3} — Загрузка ${totalItems} изображений…`);
+        setUploadProgress(`Шаг 2/3 — Загрузка ${totalItems} изображений и минт в ICP…`);
         const colRes: any = await apiBatchCreateNFTs(form);
-        const successful: any[] = (colRes?.results ?? []).filter((r: any) => r.status === 'ok' && r.id && r.metadataUri);
+        const successful: any[] = (colRes?.results ?? []).filter((r: any) => r.status === 'ok' && r.id);
         if (successful.length === 0) throw new Error('Бекенд не принял ни одного файла.');
 
-        setUploadProgress('Проверяю комиссию…');
-        const mintInfo = await apiGetMintInfo();
-        let feeCharged = false;
+        const collectionImageUrls: string[] = successful.map((r: any) => r.imageUrl);
+        const collectionNftIds: string[] = successful.map((r: any) => r.id);
 
-        const collectionImageUrls: string[] = [];
-        const collectionNftIds: string[] = [];
-
-        for (let i = 0; i < successful.length; i++) {
-          const item = successful[i];
-          const stepNum = i + 2;
-          const stepTotal = successful.length + 3;
-          const itemTitle = items[item.index]?.title ?? `${collectionName.trim() || 'Collection'} #${item.index + 1}`;
-
-          const chargeCommission = PLATFORM_FEE_ENABLED && !mintInfo.isFree && !feeCharged && mintInfo.commissionLamports > 0;
-          if (chargeCommission) {
-            setUploadProgress(`Шаг ${stepNum}/${stepTotal} — Платформенный сбор — подтверди в Phantom…`);
-            await sendCommission(umi, mintInfo.commissionLamports);
-            feeCharged = true;
-          }
-
-          setUploadProgress(`Шаг ${stepNum}/${stepTotal} — Минт элемента ${i + 1}/${successful.length} — подтверди в Phantom…`);
-          const mint = generateSigner(umi);
-          const latestBlockhash = await umi.rpc.getLatestBlockhash();
-
-          await createNft(umi, {
-            mint,
-            name: itemTitle,
-            uri: item.metadataUri,
-            sellerFeeBasisPoints: percentAmount(parseFloat(royalty)),
-          })
-            .setBlockhash(latestBlockhash)
-            .sendAndConfirm(umi, { confirm: { strategy: { type: 'blockhash', ...latestBlockhash } } });
-
-          await apiUpdateNFT(item.id, { mintAddress: mint.publicKey });
-          collectionImageUrls.push(item.imageUrl);
-          collectionNftIds.push(item.id);
-        }
-
-        setUploadProgress(`Шаг ${successful.length + 2}/${successful.length + 3} — Публикация в ленту…`);
+        setUploadProgress('Шаг 3/3 — Публикация в ленту…');
         await apiCreatePost({
           nftImages: collectionImageUrls,
           walletNftIds: collectionNftIds,
@@ -484,26 +406,13 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
           forSale,
           price: forSale && price ? parseFloat(price) : null,
           currency,
+          blockchain,
         });
       } else {
         const numEditions = Math.max(1, parseInt(editionCount) || 1);
-        const baseMetadata: any = {
-          title: title.trim(),
-          description: description.trim(),
-          tags,
-          category,
-          blockchain,
-          royalty: parseFloat(royalty),
-          forSale,
-          currency,
-        };
-        if (forSale && price) baseMetadata.price = parseFloat(price);
-
-        setUploadProgress('Проверяю комиссию…');
-        const mintInfo = await apiGetMintInfo();
 
         if (numEditions > 1) {
-          setUploadProgress('Шаг 1/4 — Сжатие и загрузка изображения…');
+          setUploadProgress('Шаг 1/3 — Сжатие и загрузка изображения…');
           const editionForm = new FormData();
           editionForm.append('image', await compressImage(selectedFile!));
           editionForm.append('metadata', JSON.stringify({
@@ -511,102 +420,17 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
             batchName: collectionName.trim() || title.trim(),
             editionCount: numEditions,
           }));
-          const edResult = await apiCreateEditionNFTs(editionForm);
-          const { metadataUri, imageUrl, editionIds } = edResult;
 
-          if (PLATFORM_FEE_ENABLED && !mintInfo.isFree && mintInfo.commissionLamports > 0) {
-            setUploadProgress('Шаг 2/4 — Платформенный сбор — подтверди в Phantom…');
-            await sendCommission(umi, mintInfo.commissionLamports);
-          }
+          setUploadProgress('Шаг 2/3 — Минт editions в ICP (reverse gas)…');
+          const edResult: any = await apiCreateEditionNFTs(editionForm);
+          const editionIds: string[] = edResult?.editionIds ?? [];
+          const imageUrl: string = edResult?.imageUrl ?? '';
 
-          setUploadProgress(`Шаг 3/4 — Строю ${numEditions} транзакций…`);
-          const sharedBlockhash = await rpcWithRetry<any>(() => umi.rpc.getLatestBlockhash(), 'editions blockhash');
-          const editionMintSigners: any[] = [];
-          const partiallySignedTxs: any[] = [];
-
-          for (let i = 0; i < numEditions; i++) {
-            const mintSigner = generateSigner(umi);
-            editionMintSigners.push(mintSigner);
-            const builtTx = createNft(umi, {
-              mint: mintSigner,
-              name: `${title.trim()} #${i + 1}/${numEditions}`,
-              uri: metadataUri,
-              sellerFeeBasisPoints: percentAmount(parseFloat(royalty)),
-            }).setBlockhash(sharedBlockhash).build(umi);
-            partiallySignedTxs.push(await mintSigner.signTransaction(builtTx));
-          }
-
-          setUploadProgress(`Шаг 3/4 — Подтверди все ${numEditions} editions в Phantom (один клик)…`);
-          const fullySignedTxs = await (umi.identity as any).signAllTransactions(partiallySignedTxs);
-
-          setUploadProgress(`Шаг 4/4 — Отправка ${numEditions} транзакций параллельно…`);
-          const sendResults = await Promise.allSettled(
-            fullySignedTxs.map((tx: any, i: number) =>
-              rpcWithRetry(() => umi.rpc.sendTransaction(tx), `send #${i + 1}`),
-            ),
-          );
-
-          const sentSigs: { i: number; sig: Uint8Array }[] = [];
-          const sendErrors: { i: number; err: string }[] = [];
-          sendResults.forEach((r, i) => {
-            if (r.status === 'fulfilled') sentSigs.push({ i, sig: r.value });
-            else sendErrors.push({ i, err: String((r as any).reason?.message ?? (r as any).reason) });
-          });
-
-          if (sentSigs.length === 0) {
-            throw new Error(`Все ${numEditions} editions провалились при отправке: ${sendErrors[0]?.err ?? 'unknown'}`);
-          }
-
-          setUploadProgress(`Шаг 4/4 — Подтверждение ${sentSigs.length} транзакций…`);
-          const confirmResults = await Promise.allSettled(
-            sentSigs.map(({ sig }, idx) =>
-              rpcWithRetry(
-                () => umi.rpc.confirmTransaction(sig, {
-                  strategy: { type: 'blockhash', ...sharedBlockhash },
-                }),
-                `confirm #${idx + 1}`,
-              ),
-            ),
-          );
-
-          const confirmErrors: { i: number; err: string }[] = [];
-          confirmResults.forEach((r, idx) => {
-            const i = sentSigs[idx].i;
-            const onchainErr = r.status === 'fulfilled' ? (r.value as any)?.value?.err : null;
-            if (r.status === 'fulfilled' && !onchainErr) {
-              return;
-            } else {
-              const reason = r.status === 'rejected' ? (r as any).reason : onchainErr;
-              confirmErrors.push({ i, err: String(reason?.message ?? JSON.stringify(reason) ?? reason) });
-            }
-          });
-
-          const sentIndices = sentSigs.map(({ i }) => i).sort((a, b) => a - b);
-
-          setUploadProgress(`Шаг 4/4 — Запись адресов (${sentIndices.length}/${numEditions})…`);
-          await Promise.allSettled(
-            sentIndices.map(i =>
-              apiUpdateNFT(editionIds[i], { mintAddress: editionMintSigners[i].publicKey }),
-            ),
-          );
-
-          const failedCount = numEditions - sentIndices.length;
-          if (failedCount === numEditions) {
-            throw new Error(`Все ${numEditions} editions провалились при отправке. Первая ошибка: ${sendErrors[0]?.err ?? 'unknown'}`);
-          }
-          if (failedCount > 0 || confirmErrors.length > 0) {
-            console.warn(`[NFTs] ${failedCount}/${numEditions} editions failed:`, { sendErrors, confirmErrors });
-          }
-
-          const successfulEditionIds = sentIndices.map(i => editionIds[i]);
-
-          setUploadProgress('Шаг 4/4 — Публикация в ленту…');
+          setUploadProgress('Шаг 3/3 — Публикация в ленту…');
           await apiCreatePost({
-            nftImages: successfulEditionIds.map(() => imageUrl),
-            walletNftIds: successfulEditionIds,
-            title: failedCount > 0
-              ? `${title.trim()} (${successfulEditionIds.length}/${numEditions} editions)`
-              : `${title.trim()} (${numEditions} editions)`,
+            nftImages: editionIds.map(() => imageUrl),
+            walletNftIds: editionIds,
+            title: `${title.trim()} (${editionIds.length}/${numEditions} editions)`,
             description: description.trim(),
             tags,
             forSale,
@@ -615,37 +439,17 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
             blockchain,
           });
         } else {
-          setUploadProgress('Шаг 1/4 — Сжатие и загрузка…');
+          setUploadProgress('Шаг 1/3 — Сжатие и загрузка…');
           const form = new FormData();
           form.append('image', await compressImage(selectedFile!));
           form.append('metadata', JSON.stringify(baseMetadata));
+
+          setUploadProgress('Шаг 2/3 — Минт в ICP (reverse gas)…');
           const result: any = await apiCreateNFT(form);
           const nftId = result?.id;
-          const metadataUri = result?.metadataUri;
-          if (!nftId || !metadataUri) throw new Error('Бекенд не вернул id/metadataUri');
+          if (!nftId) throw new Error('Бекенд не вернул id');
 
-          if (PLATFORM_FEE_ENABLED && !mintInfo.isFree && mintInfo.commissionLamports > 0) {
-            setUploadProgress('Шаг 2/4 — Платформенный сбор — подтверди в Phantom…');
-            await sendCommission(umi, mintInfo.commissionLamports);
-          }
-
-          setUploadProgress('Шаг 2/4 — Минт — подтверди в Phantom…');
-          const mint = generateSigner(umi);
-          const latestBlockhash = await umi.rpc.getLatestBlockhash();
-
-          await createNft(umi, {
-            mint,
-            name: title.trim(),
-            uri: metadataUri,
-            sellerFeeBasisPoints: percentAmount(parseFloat(royalty)),
-          })
-            .setBlockhash(latestBlockhash)
-            .sendAndConfirm(umi, { confirm: { strategy: { type: 'blockhash', ...latestBlockhash } } });
-
-          setUploadProgress('Шаг 3/4 — Запись адреса в чейне…');
-          await apiUpdateNFT(nftId, { mintAddress: mint.publicKey });
-
-          setUploadProgress('Шаг 4/4 — Публикация в ленту…');
+          setUploadProgress('Шаг 3/3 — Публикация в ленту…');
           await apiCreatePost({
             nftImage: result.image,
             title: title.trim(),
@@ -654,6 +458,7 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
             forSale,
             price: forSale && price ? parseFloat(price) : null,
             currency,
+            blockchain,
             walletNftId: nftId,
           });
         }
@@ -679,8 +484,8 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
     setCategory('Art');
     setForSale(false);
     setPrice('');
-    setCurrency('SOL');
-    setBlockchain('solana');
+    setCurrency('ICP');
+    setBlockchain('icp');
     setRoyalty('10');
     setEditionCount('1');
     setIsCollection(false);
@@ -721,7 +526,7 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
             <div className={`line ${step > 2 ? 'done' : ''}`} />
             <div className={`dot ${step === 3 ? 'active' : ''}`}>3</div>
           </div>
-          <WalletButton ready={walletReady} publicKey={publicKey} connect={connectPhantom} />
+          <WalletButton ready={walletReady} publicKey={principal} connect={connectPlug} />
         </div>
 
         <div className="step-labels">
@@ -1036,7 +841,7 @@ function CreateNftWizard({ onDone }: { onDone: () => Promise<void> }) {
 
             {!walletReady && (
               <div className="notice notice-warn">
-                ⚠️ Phantom не подключён. Нажми «Подключить Phantom» сверху, чтобы выпустить токен в чейне.
+                ⚠️ Plug не подключён. Нажми «Подключить Plug» сверху, чтобы привязать Principal к выпуску NFT.
               </div>
             )}
 
@@ -1159,7 +964,7 @@ function WalletButton({ ready, publicKey, connect }: { ready: boolean; publicKey
         finally { setBusy(false); }
       }}
     >
-      {busy ? 'Подключение…' : 'Подключить Phantom'}
+      {busy ? 'Подключение…' : 'Подключить Plug'}
     </button>
   );
 }
@@ -1171,8 +976,8 @@ function WalletButton({ ready, publicKey, connect }: { ready: boolean; publicKey
 function BatchNftForm({ onDone }: { onDone: () => Promise<void> }) {
   const fileRef = useRef<HTMLInputElement>(null);
   const [files, setFiles] = useState<File[]>([]);
-  const [blockchain, setBlockchain] = useState('solana');
-  const [currency, setCurrency] = useState('SOL');
+  const [blockchain, setBlockchain] = useState('icp');
+  const [currency, setCurrency] = useState('ICP');
   const [royalty, setRoyalty] = useState('10');
   const [tags, setTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState('');
@@ -1566,7 +1371,7 @@ function EditNftModal({ nft, onClose, onSaved }: { nft: NFT; onClose: () => void
               <label>Валюта</label>
               <select value={currency} onChange={e => setCurrency(e.target.value)}>
                 <option value="USDC">USDC</option>
-                <option value="SOL">SOL</option>
+                <option value="ICP">ICP</option>
                 <option value="USD">USD</option>
                 <option value="UAH">UAH</option>
               </select>

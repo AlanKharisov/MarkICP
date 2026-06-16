@@ -154,7 +154,7 @@ function CreateListingModal({ nfts, onClose, onDone }: { nfts: NFT[]; onClose: (
             <label>Валюта</label>
             <select value={currency} onChange={e => setCurrency(e.target.value)}>
               <option value="USDC">USDC</option>
-              <option value="SOL">SOL</option>
+              <option value="ICP">ICP</option>
               <option value="USD">USD</option>
               <option value="UAH">UAH</option>
             </select>

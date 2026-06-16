@@ -5,7 +5,7 @@ const BASE_URL =
   (import.meta.env.VITE_API_URL as string) ||
   'https://idenity-backend.duckdns.org';
 
-console.log('[API] API_BASE_URL:', BASE_URL);
+// console.log('[API] API_BASE_URL:', BASE_URL);
 
 async function token(): Promise<string | null> {
   try {
@@ -88,7 +88,7 @@ export type NFT = {
   price?: number;
   currency?: string;
   userId?: string;
-  mintAddress?: string;
+  tokenId?: string;
   metadataUri?: string;
   nfcUid?: string;
   tags?: string[];
@@ -271,7 +271,8 @@ export const apiDeleteNFT = (id: string) => del<void>(`/api/nfts/${id}`);
 export const apiGetMintInfo = () => get<{
   mintCount: number;
   isFree: boolean;
-  commissionLamports: number;
+  /** Estimated cycles cost per mint (display only; backend pays reverse gas). */
+  estimatedCyclesPerMint?: number;
 }>('/api/nfts/mint-info');
 
 export const apiCreateNFT = async (form: FormData) => {
@@ -389,7 +390,7 @@ export const apiVerifyNfc = (nfcUid: string) =>
     nftTitle: string;
     ownerId: string;
     ownerName: string;
-    mintAddress?: string;
+    tokenId?: string;
     deliveryId?: string;
     autoConfirmedReceipt: boolean;
   }>('/api/nfc/verify', { nfcUid });

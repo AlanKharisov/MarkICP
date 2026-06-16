@@ -43,8 +43,9 @@ export default function NftViewerPage({ source, onClose }: Props) {
     return () => { cancelled = true; };
   }, [source]);
 
-  const explorerUrl = nft?.mintAddress
-    ? `https://explorer.solana.com/address/${nft.mintAddress}`
+  const canisterId = import.meta.env.VITE_ICP_NFT_CANISTER_ID;
+  const explorerUrl = canisterId
+    ? `https://dashboard.internetcomputer.org/canister/${canisterId}`
     : null;
 
   return (
@@ -83,7 +84,7 @@ export default function NftViewerPage({ source, onClose }: Props) {
 
               <div className="viewer-badges">
                 {nft.forSale && <span className="badge badge-success">on sale · {nft.price} {nft.currency}</span>}
-                {nft.mintAddress && <span className="badge badge-info">on-chain</span>}
+                {nft.tokenId && <span className="badge badge-info">on-chain</span>}
                 {nft.nfcUid && <span className="badge badge-info">NFC verified</span>}
                 {nft.category && <span className="badge badge-muted">{nft.category}</span>}
                 {source.kind === 'nfc' && <span className="badge badge-success">scan OK</span>}
@@ -120,14 +121,14 @@ export default function NftViewerPage({ source, onClose }: Props) {
                 </div>
               </div>
 
-              {(nft.mintAddress || nft.metadataUri || nft.nfcUid) && (
+              {(nft.tokenId || nft.metadataUri || nft.nfcUid) && (
                 <div className="viewer-section">
                   <div className="viewer-section-label">On-chain</div>
                   <div className="meta-table">
-                    {nft.mintAddress && (
+                    {nft.tokenId && (
                       <MetaRow
-                        label="Mint address"
-                        value={nft.mintAddress}
+                        label="Token ID"
+                        value={nft.tokenId}
                         mono
                         href={explorerUrl ?? undefined}
                       />

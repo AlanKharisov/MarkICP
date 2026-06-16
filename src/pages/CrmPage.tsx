@@ -1077,7 +1077,7 @@ function NftChainModal({
         const master = sorted.find(nft => nftEditionNumber(nft) === 0) ?? sorted[0];
         const selectedCount = sorted.filter(nft => selectedIds.includes(nft.id)).length;
         const existingChainCount = sorted.filter(nft => deliveryByNft.has(nft.id)).length;
-        const mintedCount = sorted.filter(nft => nft.mintAddress).length;
+        const mintedCount = sorted.filter(nft => nft.tokenId).length;
         return {
           id,
           items: sorted,
@@ -1098,7 +1098,7 @@ function NftChainModal({
     return scoped.filter(nft => [
       nft.id,
       nft.title,
-      nft.mintAddress,
+      nft.tokenId,
       nft.nfcUid,
       nft.batchName,
       nft.category,
@@ -1316,7 +1316,7 @@ function NftChainModal({
                         <strong>{nft.title}</strong>
                         <small>
                           {delivery ? statusLabel(delivery.status) : 'Нет цепочки'}
-                          {nft.mintAddress ? ' · mint' : ''}
+                          {nft.tokenId ? ' · mint' : ''}
                           {' · '}
                           {shortId(nft.id)}
                         </small>
@@ -1531,7 +1531,7 @@ function NfcBindForm() {
   const filteredNfts = useMemo(() => {
     const q = nftQuery.trim().toLowerCase();
     if (!q) return nfts;
-    return nfts.filter(nft => [nft.id, nft.title, nft.mintAddress, nft.nfcUid].map(searchValue).join(' ').includes(q));
+    return nfts.filter(nft => [nft.id, nft.title, nft.tokenId, nft.nfcUid].map(searchValue).join(' ').includes(q));
   }, [nfts, nftQuery]);
 
   const submit = async () => {
@@ -1650,7 +1650,7 @@ function NfcVerifyForm() {
         <div className="nfc-result">
           <strong>{result.nftTitle}</strong>
           <span>Владелец: {result.ownerName}</span>
-          {result.mintAddress && <small>Mint: {result.mintAddress}</small>}
+          {result.tokenId && <small>Token: {result.tokenId}</small>}
           {result.autoConfirmedReceipt && <span className="badge badge-success">Доставка автоподтверждена</span>}
         </div>
       )}
